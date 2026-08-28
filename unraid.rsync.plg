@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY repoName        "unraid-rsync">
   <!ENTITY pluginName      "unraid.rsync">
-  <!ENTITY gitUser         "sasa-fajkovic">
+  <!ENTITY gitUser         "Skrockle">
   <!ENTITY version        "2026.06.13b">
   <!ENTITY releaseLocation "https://github.com/&gitUser;/&repoName;/releases/download/&version;">
   <!ENTITY pluginURL       "https://github.com/&gitUser;/&repoName;/releases/latest/download/&pluginName;.plg">
