@@ -76,6 +76,18 @@ final class HandlerTest extends TestCase
         $this->assertSame(['a', 'b'], $body['errors']);
     }
 
+    public function testConnectionSaveNormalisationRetainsRemoteRsyncPath(): void
+    {
+        $conn = ur_normalize_connection_for_save([
+            'id' => 'c-qnap', 'name' => 'QNAP', 'host' => 'qnap.example',
+            'username' => 'admin', 'authMethod' => 'KEYFILE',
+            'keyFilePath' => '/root/.ssh/id_ed25519',
+            'remoteRsyncPath' => ' /opt/bin/rsync ',
+        ], Credentials::defaults());
+
+        $this->assertSame('/opt/bin/rsync', $conn['remoteRsyncPath'] ?? null);
+    }
+
     public function testCsrfRejectedWhenMissing(): void
     {
         $_POST['csrf_token'] = '';

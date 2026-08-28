@@ -29,7 +29,7 @@ declare(strict_types=1);
  *
  *   Connections
  *     { id, name, host, port, username, authMethod, keyId, keyFilePath,
- *       password, remoteHostKey, strictHostKey, connectTimeout }
+ *       password, remoteRsyncPath, remoteHostKey, strictHostKey, connectTimeout }
  *     - authMethod KEYFILE points at an EXISTING private key file already on
  *       this Unraid system (keyFilePath, e.g. /root/.ssh/id_ed25519). The plugin
  *       NEVER reads, copies, uploads or stores the key material - OpenSSH reads
@@ -169,6 +169,7 @@ class Credentials
             'keyId'          => '',
             'keyFilePath'    => self::DEFAULT_KEY_FILE_PATH,
             'password'       => '',           // stored obfuscated
+            'remoteRsyncPath' => '',
             'remoteHostKey'  => '',
             'strictHostKey'  => 'accept-new',
             'connectTimeout' => 10,
@@ -395,6 +396,9 @@ class Credentials
         // falls back to the default path - safe, since the field is only USED
         // when authMethod is KEYFILE (existing KEY/PASSWORD connections ignore it).
         $out['keyFilePath'] = isset($conn['keyFilePath']) ? trim((string) $conn['keyFilePath']) : $defaults['keyFilePath'];
+        $out['remoteRsyncPath'] = isset($conn['remoteRsyncPath'])
+            ? trim((string) $conn['remoteRsyncPath'])
+            : $defaults['remoteRsyncPath'];
         $out['password'] = isset($conn['password']) ? (string) $conn['password'] : $defaults['password'];
         $out['remoteHostKey'] = isset($conn['remoteHostKey']) ? (string) $conn['remoteHostKey'] : $defaults['remoteHostKey'];
 
@@ -502,6 +506,12 @@ class Credentials
             $errors[] = 'Strict host key checking must be accept-new, yes or no.';
         }
 
+        $remoteRsyncPath = trim((string) ($conn['remoteRsyncPath'] ?? ''));
+        if ($remoteRsyncPath !== '' && !self::isSafeRemoteRsyncPath($remoteRsyncPath)) {
+            $errors[] = 'Remote rsync path must be an absolute Unix executable path '
+                . 'and must not contain unsafe characters or additional arguments.';
+        }
+
         if ($auth === 'KEYFILE') {
             // An existing key file already on this system. We require a non-empty,
             // ABSOLUTE, option-injection-safe path. We deliberately do NOT require
@@ -586,6 +596,27 @@ class Credentials
         }
         // Reject any ".." path segment (a normalised-path guard; "/root/../etc"
         // style traversal has no legitimate use for a configured key path).
+        foreach (explode('/', $value) as $segment) {
+            if ($segment === '..') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * True when a remote rsync executable is safe for `--rsync-path=<path>`.
+     * rsync ultimately passes this value to the remote shell, so the allowlist
+     * is intentionally narrower than a generic local filesystem path: one
+     * absolute path token only, with no empty or traversal segments and no
+     * shell syntax, globbing, whitespace, or appended arguments.
+     */
+    public static function isSafeRemoteRsyncPath(string $value): bool
+    {
+        $value = trim($value);
+        if ($value === '' || !preg_match('#^/(?:[A-Za-z0-9._+-]+/)*[A-Za-z0-9._+-]+$#D', $value)) {
+            return false;
+        }
         foreach (explode('/', $value) as $segment) {
             if ($segment === '..') {
                 return false;

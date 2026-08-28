@@ -581,6 +581,17 @@ final class OptionsFormHelpTest extends TestCase
 
     #[RunInSeparateProcess]
     #[PreserveGlobalState(false)]
+    public function testConnectionsPageRendersOptionalRemoteRsyncPathField(): void
+    {
+        $html = $this->renderPageBody(__DIR__ . '/../source/pages/connections.php');
+
+        $this->assertStringContainsString('Remote rsync path', $html);
+        $this->assertStringContainsString('[remoteRsyncPath]', $html);
+        $this->assertStringContainsString('/opt/bin/rsync', $html);
+    }
+
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function testJobsPagePushesConfiguredSecretsDirOverride(): void
     {
         $secretsDir = '/mnt/user/rsync';

@@ -99,6 +99,22 @@ final class CredentialsTest extends TestCase
         $this->assertSame('  spaced-pass  ', $c['password']);
     }
 
+    public function testRemoteRsyncPathDefaultsEmptyAndIsTrimmedWhenPresent(): void
+    {
+        $this->assertSame('', Credentials::defaultConnection()['remoteRsyncPath'] ?? null);
+
+        $legacy = Credentials::mergeConnection([
+            'id' => 'c-old', 'name' => 'old', 'host' => 'h', 'username' => 'u',
+        ]);
+        $this->assertSame('', $legacy['remoteRsyncPath'] ?? null);
+
+        $configured = Credentials::mergeConnection([
+            'id' => 'c-qnap', 'name' => 'qnap', 'host' => 'h', 'username' => 'u',
+            'remoteRsyncPath' => "  /opt/bin/rsync\n",
+        ]);
+        $this->assertSame('/opt/bin/rsync', $configured['remoteRsyncPath'] ?? null);
+    }
+
     public function testValidateKeyRejectsWhitespaceOnlyDuplicate(): void
     {
         // "backup" vs "backup " (trailing space) must still collide.
@@ -384,6 +400,50 @@ final class CredentialsTest extends TestCase
         $this->assertTrue($res['valid'], implode(' | ', $res['errors']));
         // ...and no managed-key requirement leaks in for KEYFILE.
         $this->assertSame([], array_filter($res['errors'], fn($e) => stripos($e, 'select an SSH key') !== false));
+    }
+
+    public function testValidateConnectionAcceptsSafeAbsoluteRemoteRsyncPath(): void
+    {
+        $creds = Credentials::defaults();
+        $conn = Credentials::mergeConnection([
+            'id' => 'c', 'name' => 'n', 'host' => 'h.example', 'username' => 'u',
+            'authMethod' => 'KEYFILE', 'keyFilePath' => '/root/.ssh/id_ed25519',
+            'remoteRsyncPath' => '/opt/bin/rsync',
+        ]);
+        $res = Credentials::validateConnection($conn, $creds);
+        $this->assertTrue($res['valid'], implode(' | ', $res['errors']));
+        $this->assertSame('/opt/bin/rsync', $conn['remoteRsyncPath'] ?? null);
+    }
+
+    #[DataProvider('unsafeRemoteRsyncPathProvider')]
+    public function testValidateConnectionRejectsUnsafeRemoteRsyncPath(string $path): void
+    {
+        $creds = Credentials::defaults();
+        $conn = Credentials::mergeConnection([
+            'id' => 'c', 'name' => 'n', 'host' => 'h.example', 'username' => 'u',
+            'authMethod' => 'KEYFILE', 'keyFilePath' => '/root/.ssh/id_ed25519',
+            'remoteRsyncPath' => $path,
+        ]);
+        $res = Credentials::validateConnection($conn, $creds);
+        $this->assertFalse($res['valid'], "remote rsync path '$path' must be rejected");
+        $this->assertNotEmpty(array_filter(
+            $res['errors'],
+            fn($e) => stripos($e, 'remote rsync path') !== false
+        ));
+    }
+
+    public static function unsafeRemoteRsyncPathProvider(): array
+    {
+        return [
+            'relative'             => ['opt/bin/rsync'],
+            'extra argument'       => ['/opt/bin/rsync --server'],
+            'semicolon'            => ['/opt/bin/rsync;id'],
+            'single quote'         => ["/opt/bin/rsync'"],
+            'double quote'         => ['/opt/bin/rsync"'],
+            'backtick'             => ['/opt/bin/`rsync`'],
+            'command substitution' => ['/opt/bin/$(id)'],
+            'traversal'            => ['/opt/../usr/bin/rsync'],
+        ];
     }
 
     #[DataProvider('unsafeKeyFilePathProvider')]

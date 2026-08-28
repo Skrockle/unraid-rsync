@@ -785,6 +785,7 @@ function ur_normalize_connection_for_save(array $raw, array $existing): array
         'authMethod'     => isset($raw['authMethod'])     ? (string) $raw['authMethod']     : 'KEYFILE',
         'keyId'          => isset($raw['keyId'])          ? (string) $raw['keyId']          : '',
         'keyFilePath'    => isset($raw['keyFilePath'])    ? (string) $raw['keyFilePath']    : '',
+        'remoteRsyncPath' => isset($raw['remoteRsyncPath']) ? (string) $raw['remoteRsyncPath'] : '',
         'remoteHostKey'  => isset($raw['remoteHostKey'])  ? (string) $raw['remoteHostKey']  : '',
         'strictHostKey'  => isset($raw['strictHostKey'])  ? (string) $raw['strictHostKey']  : 'accept-new',
         'connectTimeout' => isset($raw['connectTimeout']) ? (string) $raw['connectTimeout'] : 10,

@@ -389,7 +389,7 @@ class Rsync
      * @param string              $runLog   absolute path of the per-run log file
      * @param string              $src      source operand (already direction-resolved)
      * @param string              $dest     destination operand
-     * @param array{dashE?:string,sshpassPrefix?:array<int,string>}|null $ssh
+     * @param array{dashE?:string,sshpassPrefix?:array<int,string>,remoteRsyncPath?:string}|null $ssh
      *        SSH transport pieces from Ssh::materialize(); null/[] for LOCAL.
      * @param bool                $dryRun
      * @return array<int,string>
@@ -403,14 +403,18 @@ class Rsync
         ?array $ssh = null,
         bool $dryRun = false
     ): array {
-        $sshpassPrefix = [];
-        $dashE         = '';
+        $sshpassPrefix  = [];
+        $dashE          = '';
+        $remoteRsyncPath = '';
         if (is_array($ssh)) {
             if (isset($ssh['sshpassPrefix']) && is_array($ssh['sshpassPrefix'])) {
                 $sshpassPrefix = $ssh['sshpassPrefix'];
             }
             if (isset($ssh['dashE']) && is_string($ssh['dashE'])) {
                 $dashE = $ssh['dashE'];
+            }
+            if (isset($ssh['remoteRsyncPath']) && is_string($ssh['remoteRsyncPath'])) {
+                $remoteRsyncPath = $ssh['remoteRsyncPath'];
             }
         }
 
@@ -444,6 +448,10 @@ class Rsync
         if ($dashE !== '') {
             $argv[] = '-e';
             $argv[] = $dashE;
+        }
+
+        if ($remoteRsyncPath !== '') {
+            $argv[] = '--rsync-path=' . $remoteRsyncPath;
         }
 
         $argv[] = '--';

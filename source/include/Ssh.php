@@ -575,11 +575,11 @@ class Ssh
     // --- test connection ----------------------------------------------------
 
     /**
-     * Run ssh once against a connection with a trivial remote command (`true`)
-     * and classify the outcome. Materialises secrets, runs, cleans up.
+     * Run ssh once against a connection and probe the configured remote rsync
+     * executable's version. Materialises secrets, runs, cleans up.
      *
      * Returns a structured result the handler renders directly:
-     *   ok      bool    - the probe succeeded (authenticated + ran `true`)
+     *   ok      bool    - the probe succeeded and remote rsync reported version
      *   message string  - a human message
      *   reason  string  - a machine token: 'ok' | 'auth' | 'hostkey' |
      *                      'unreachable' | 'config' | 'sshpass-missing'
@@ -590,9 +590,7 @@ class Ssh
      *   - ssh exit 255             -> connect/auth error; we sniff stderr to
      *                                  split auth vs host-key vs unreachable
      *   - exit 0                    -> success
-     *   - other                    -> treated as success-ish remote error but
-     *                                  reported (the remote `true` shouldn't
-     *                                  fail, so anything else is surfaced).
+     *   - other                    -> remote command error, surfaced to the user
      *
      * @param array<string,mixed> $creds  loaded credentials structure
      * @return array{ok:bool,message:string,reason:string}
@@ -622,18 +620,25 @@ class Ssh
             return ['ok' => false, 'reason' => $reason, 'message' => (string) $mat['error']];
         }
 
-        // Compose the full probe argv: [sshpass-prefix] ssh <opts> -- user@host true
+        $remoteRsync = (string) $conn['remoteRsyncPath'];
+        if ($remoteRsync === '') {
+            $remoteRsync = 'rsync';
+        }
+
+        // Compose the full probe argv:
+        // [sshpass-prefix] ssh <opts> -- user@host <remote-rsync> --version
         // The `--` ends ssh option parsing so a host/username starting with '-'
         // can never be read as an ssh option (option-injection guard, on top of
         // the validation guard in Credentials::validateConnection).
         $argv = array_merge(
             $mat['sshpassPrefix'],
             $mat['sshArgv'],
-            ['--', $conn['username'] . '@' . $conn['host'], 'true']
+            ['--', $conn['username'] . '@' . $conn['host'], $remoteRsync, '--version']
         );
 
         $exitCode = self::SSH_EXIT_ERROR;
         $stderr   = '';
+        $stdout   = '';
         try {
             // REDACTION NOTE: buildSshArgv() composes this probe WITHOUT ssh's -v
             // (verbose) flag, so the captured stderr we surface via firstLine()
@@ -642,12 +647,22 @@ class Ssh
             // diagnostics. If anyone ever adds -v here, ssh WILL log the identity
             // file path (and more), so the stderr must then be redacted (see
             // Logger::setRedaction) before it is returned to the browser.
-            [$exitCode, $stderr] = static::runProbe($argv);
+            $probe    = static::runProbe($argv);
+            $exitCode = (int) ($probe[0] ?? self::SSH_EXIT_ERROR);
+            $stderr   = (string) ($probe[1] ?? '');
+            $stdout   = (string) ($probe[2] ?? '');
         } finally {
             self::cleanupRuntime((string) $mat['token']);
         }
 
-        return self::classifyProbe($conn, (int) $exitCode, (string) $stderr);
+        $result = self::classifyProbe($conn, (int) $exitCode, (string) $stderr);
+        if ($result['ok']) {
+            $versionLine = self::firstLine($stdout);
+            $result['message'] = $versionLine !== ''
+                ? 'Connection succeeded. Remote rsync: ' . $versionLine . ' (' . $remoteRsync . ').'
+                : 'Connection succeeded. Remote rsync version was not reported (' . $remoteRsync . ').';
+        }
+        return $result;
     }
 
     /**
@@ -831,13 +846,13 @@ class Ssh
     }
 
     /**
-     * Run the ssh probe argv (no shell) and return [exitCode, stderr]. Live
+     * Run the ssh probe argv (no shell) and return [exitCode, stderr, stdout]. Live
      * implementation uses proc_open with the argv ARRAY so nothing is parsed by
      * a shell. Overridable in tests so the classification logic is exercised
      * without opening a socket.
      *
      * @param array<int,string> $argv
-     * @return array{0:int,1:string}
+     * @return array{0:int,1:string,2:string}
      */
     protected static function runProbe(array $argv): array
     {
@@ -850,15 +865,17 @@ class Ssh
         // Pass the argv ARRAY form so PHP execs directly without /bin/sh.
         $proc = @proc_open($argv, $descriptors, $pipes);
         if (!is_resource($proc)) {
-            return [self::SSH_EXIT_ERROR, 'Failed to start ssh.'];
+            return [self::SSH_EXIT_ERROR, 'Failed to start ssh.', ''];
         }
         $stdout = stream_get_contents($pipes[1]);
         $stderr = stream_get_contents($pipes[2]);
         fclose($pipes[1]);
         fclose($pipes[2]);
         $code = proc_close($proc);
-        // stdout from a `true` probe is empty; keep stderr for classification.
-        unset($stdout);
-        return [(int) $code, is_string($stderr) ? $stderr : ''];
+        return [
+            (int) $code,
+            is_string($stderr) ? $stderr : '',
+            is_string($stdout) ? $stdout : '',
+        ];
     }
 }

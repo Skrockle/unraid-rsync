@@ -358,6 +358,59 @@ final class RsyncTest extends TestCase
         $this->assertLessThan($ddIdx, $eIdx);
     }
 
+    public function testBuildArgvSshInjectsConfiguredRemoteRsyncPathAsSingleToken(): void
+    {
+        $ssh = [
+            'dashE'          => "'ssh' '-i' '/tmp/k'",
+            'sshpassPrefix'  => [],
+            'remoteRsyncPath' => '/opt/bin/rsync',
+        ];
+        $opts = $this->emptyOpts();
+        $opts['mkpath'] = true;
+
+        $argv = Rsync::buildArgv(
+            $opts,
+            'normal',
+            '/rt/run.log',
+            '/mnt/user/s/',
+            'user@host:/data/',
+            $ssh
+        );
+
+        $this->assertSame(1, count(array_filter(
+            $argv,
+            static fn($token) => $token === '--rsync-path=/opt/bin/rsync'
+        )));
+        $this->assertContains('--mkpath', $argv);
+        $this->assertContains('--info=stats2,progress2', $argv);
+        $this->assertLessThan(
+            array_search('--', $argv, true),
+            array_search('--rsync-path=/opt/bin/rsync', $argv, true)
+        );
+    }
+
+    public function testBuildArgvSshOmitsRemoteRsyncPathWhenConnectionFieldIsEmpty(): void
+    {
+        $ssh = [
+            'dashE'          => "'ssh' '-i' '/tmp/k'",
+            'sshpassPrefix'  => [],
+            'remoteRsyncPath' => '',
+        ];
+        $argv = Rsync::buildArgv(
+            $this->emptyOpts(),
+            'quiet',
+            '/rt/run.log',
+            '/mnt/user/s/',
+            'user@host:/data/',
+            $ssh
+        );
+
+        $this->assertSame([], array_values(array_filter(
+            $argv,
+            static fn($token) => str_starts_with($token, '--rsync-path=')
+        )));
+    }
+
     public function testBuildArgvSshPasswordPrependsSshpassPrefix(): void
     {
         // PASSWORD-auth pieces: a sshpass prefix wraps the WHOLE rsync argv.

@@ -72,18 +72,19 @@ function ur_render_connection_card($conn, $index, array $keys, bool $sshpassOk):
     $p    = 'connections[' . $index . ']';
     $idb  = 'ur_conn_' . $index;
 
-    $id          = (string) $conn['id'];
-    $name        = (string) $conn['name'];
-    $host        = (string) $conn['host'];
-    $port        = (string) $conn['port'];
-    $username    = (string) $conn['username'];
-    $auth        = (string) $conn['authMethod'];
-    $keyId       = (string) $conn['keyId'];
-    $keyFilePath = (string) $conn['keyFilePath'];
-    $strict      = (string) $conn['strictHostKey'];
-    $timeout     = (string) $conn['connectTimeout'];
-    $hostKey     = (string) $conn['remoteHostKey'];
-    $hasPass     = ((string) $conn['password']) !== '';
+    $id              = (string) $conn['id'];
+    $name            = (string) $conn['name'];
+    $host            = (string) $conn['host'];
+    $port            = (string) $conn['port'];
+    $username        = (string) $conn['username'];
+    $remoteRsyncPath = (string) $conn['remoteRsyncPath'];
+    $auth            = (string) $conn['authMethod'];
+    $keyId           = (string) $conn['keyId'];
+    $keyFilePath     = (string) $conn['keyFilePath'];
+    $strict          = (string) $conn['strictHostKey'];
+    $timeout         = (string) $conn['connectTimeout'];
+    $hostKey         = (string) $conn['remoteHostKey'];
+    $hasPass         = ((string) $conn['password']) !== '';
     // A KEYFILE connection always has SOME keyFilePath after merge; offer the
     // conventional default when it's somehow empty so the field is never blank.
     if ($keyFilePath === '') {
@@ -109,6 +110,16 @@ function ur_render_connection_card($conn, $index, array $keys, bool $sshpassOk):
     // username (required)
     echo '<dt><label for="' . ur_h($idb . '_user') . '">' . ur_h(ur_t('Username')) . '</label>' . ur_required_mark() . ':</dt>';
     echo '<dd><input type="text" id="' . ur_h($idb . '_user') . '" name="' . ur_h($p . '[username]') . '" value="' . ur_h($username) . '" required></dd>';
+
+    // Optional remote executable. Empty preserves rsync's normal remote PATH
+    // lookup; QNAP Entware users can select the modern binary explicitly.
+    echo '<dt><label for="' . ur_h($idb . '_remote_rsync') . '">' . ur_h(ur_t('Remote rsync path')) . '</label>:</dt>';
+    echo '<dd><input type="text" id="' . ur_h($idb . '_remote_rsync') . '" name="' . ur_h($p . '[remoteRsyncPath]') . '" value="' . ur_h($remoteRsyncPath) . '" placeholder="/opt/bin/rsync">';
+    echo '<blockquote class="inline_help"><p>'
+        . ur_h(ur_t('Optional. Leave blank to use rsync from the remote system PATH. For QNAP Entware, use /opt/bin/rsync. '
+            . 'Only a safe absolute Unix path is accepted; additional arguments and shell characters are rejected.'))
+        . '</p></blockquote>';
+    echo '</dd>';
 
     // auth method. KEYFILE is FIRST (the default + common Unraid case): point at
     // an existing key file already on this server. KEY = a managed keychain key

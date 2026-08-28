@@ -438,6 +438,67 @@ final class RunnerTest extends TestCase
         $this->assertSame('/mnt/disk1/dst/', $seenArgv[$dd + 2]);
     }
 
+    #[DataProvider('sshDirectionProvider')]
+    public function testSshPushAndPullUseConfiguredRemoteRsyncWithModernFlags(
+        string $direction,
+        string $expectedSrc,
+        string $expectedDest
+    ): void {
+        $seenArgv = null;
+        Rsync::$runner = function (array $argv, $onOutput) use (&$seenArgv): int {
+            $seenArgv = $argv;
+            return 0;
+        };
+
+        $keyPath = UR_CONFIG_BASE . '/id_remote_rsync';
+        file_put_contents($keyPath, "TEST KEY\n");
+        try {
+            $creds = Credentials::defaults();
+            $creds['connections'][] = Credentials::mergeConnection([
+                'id' => 'c-qnap', 'name' => 'QNAP', 'host' => 'qnap.example',
+                'username' => 'admin', 'authMethod' => 'KEYFILE',
+                'keyFilePath' => $keyPath, 'remoteRsyncPath' => '/opt/bin/rsync',
+            ]);
+            Credentials::save($creds);
+
+            $config = Config::load();
+            $job = Config::defaultJob();
+            $job['id'] = 'j-remote-' . strtolower($direction);
+            $job['name'] = $job['id'];
+            $job['transport'] = 'SSH';
+            $job['direction'] = $direction;
+            $job['connectionId'] = 'c-qnap';
+            $job['useGlobalDefaults'] = false;
+            $job['rsyncOptions'] = Config::mergeRsyncOptions(['mkpath' => true]);
+            $job['logLevel'] = 'normal';
+            $job['pairs'] = [['local' => '/mnt/user/src/', 'remote' => '/share/Backup/']];
+            $config['jobs'][] = $job;
+            Config::save($config);
+
+            $res = Runner::run($job['id'], false);
+        } finally {
+            @unlink($keyPath);
+            Credentials::save(Credentials::defaults());
+        }
+
+        $this->assertSame(Rsync::STATE_SUCCESS, $res['state']);
+        $this->assertIsArray($seenArgv);
+        $this->assertContains('--rsync-path=/opt/bin/rsync', $seenArgv);
+        $this->assertContains('--mkpath', $seenArgv);
+        $this->assertContains('--info=stats2,progress2', $seenArgv);
+        $dd = array_search('--', $seenArgv, true);
+        $this->assertSame($expectedSrc, $seenArgv[$dd + 1]);
+        $this->assertSame($expectedDest, $seenArgv[$dd + 2]);
+    }
+
+    public static function sshDirectionProvider(): array
+    {
+        return [
+            'push' => ['PUSH', '/mnt/user/src/', 'admin@qnap.example:/share/Backup/'],
+            'pull' => ['PULL', 'admin@qnap.example:/share/Backup/', '/mnt/user/src/'],
+        ];
+    }
+
     public function testJobNotFoundIsHardFail(): void
     {
         $res = Runner::run('j-does-not-exist', false);

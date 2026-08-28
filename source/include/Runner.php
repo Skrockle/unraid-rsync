@@ -246,8 +246,9 @@ class Runner
                     $token     = (string) $matResult['token'];
                     $mat       = $matResult['mat'];
                     $sshPieces = [
-                        'dashE'         => (string) $mat['dashE'],
-                        'sshpassPrefix' => (array) $mat['sshpassPrefix'],
+                        'dashE'           => (string) $mat['dashE'],
+                        'sshpassPrefix'   => (array) $mat['sshpassPrefix'],
+                        'remoteRsyncPath' => (string) ($mat['conn']['remoteRsyncPath'] ?? ''),
                     ];
                     // F1: arm secret-path redaction BEFORE any captured rsync/ssh
                     // output reaches the log. At `debug` level rsync echoes the

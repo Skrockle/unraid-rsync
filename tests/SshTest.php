@@ -13,8 +13,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
  */
 final class FakeSsh extends Ssh
 {
-    /** @var array{0:int,1:string} */
-    public static $nextProbe = [0, ''];
+    /** @var array{0:int,1:string,2?:string} */
+    public static $nextProbe = [0, '', ''];
     /** @var array<int,string>|null the argv runProbe was last called with */
     public static $lastProbeArgv = null;
 
@@ -65,7 +65,7 @@ final class SshTest extends TestCase
         FakeSsh::$runtimeBase = $this->rtBase;
         Ssh::$sshpassPathOverride = null;
         FakeSsh::$sshpassPathOverride = null;
-        FakeSsh::$nextProbe = [0, ''];
+        FakeSsh::$nextProbe = [0, '', ''];
         FakeSsh::$lastProbeArgv = null;
     }
 
@@ -243,12 +243,14 @@ final class SshTest extends TestCase
         $res = FakeSsh::testConnection($creds, 'c-kf');
         $this->assertTrue($res['ok'], $res['message']);
 
-        // The probe argv carried -i <keyFilePath> and ended with `-- user@host true`.
+        // The probe argv carried -i <keyFilePath> and probes remote rsync.
         $argv = FakeSsh::$lastProbeArgv;
         $this->assertIsArray($argv);
         $i = array_search('-i', $argv, true);
         $this->assertSame($keyPath, $argv[$i + 1]);
-        $this->assertSame('true', end($argv));
+        $destIdx = array_search('sasa@h.example', $argv, true);
+        $this->assertSame('rsync', $argv[$destIdx + 1]);
+        $this->assertSame('--version', $argv[$destIdx + 2]);
     }
 
     public function testTestConnectionKeyfileMissingFileReportsConfig(): void
@@ -668,7 +670,39 @@ final class SshTest extends TestCase
 
     public function testTestConnectionComposesProbeArgvAndSucceeds(): void
     {
-        FakeSsh::$nextProbe = [0, ''];
+        FakeSsh::$nextProbe = [0, '', "rsync  version 3.4.1  protocol version 32\nCopyright\n"];
+        $creds = Credentials::defaults();
+        $creds['keys'][] = [
+            'id' => 'k-1', 'name' => 'k', 'privateKey' => "KEY\n",
+            'publicKey' => 'ssh-ed25519 AAAA', 'fingerprint' => 'SHA256:x',
+        ];
+        $creds['connections'][] = $this->keyConn([
+            'remoteHostKey' => 'h ssh-ed25519 AAAA',
+            'remoteRsyncPath' => '/opt/bin/rsync',
+        ]);
+
+        $res = FakeSsh::testConnection($creds, 'c-key');
+        $this->assertTrue($res['ok'], $res['message']);
+        $this->assertSame('ok', $res['reason']);
+        $this->assertStringContainsString('rsync  version 3.4.1', $res['message']);
+        $this->assertStringContainsString('/opt/bin/rsync', $res['message']);
+
+        // The probe argv runs the configured remote binary's version command,
+        // with `--` before the destination (option-injection guard).
+        $argv = FakeSsh::$lastProbeArgv;
+        $this->assertIsArray($argv);
+        $destIdx = array_search('sasa@h.example', $argv, true);
+        $this->assertNotFalse($destIdx);
+        $this->assertSame('--', $argv[$destIdx - 1], 'destination must be preceded by --');
+        $this->assertSame('/opt/bin/rsync', $argv[$destIdx + 1]);
+        $this->assertSame('--version', $argv[$destIdx + 2]);
+        // KEY auth: no sshpass prefix in front of ssh.
+        $this->assertSame('ssh', $argv[0]);
+    }
+
+    public function testTestConnectionUsesPathLookupWhenRemoteRsyncPathIsEmpty(): void
+    {
+        FakeSsh::$nextProbe = [0, '', "rsync  version 3.4.4  protocol version 32\n"];
         $creds = Credentials::defaults();
         $creds['keys'][] = [
             'id' => 'k-1', 'name' => 'k', 'privateKey' => "KEY\n",
@@ -677,19 +711,13 @@ final class SshTest extends TestCase
         $creds['connections'][] = $this->keyConn(['remoteHostKey' => 'h ssh-ed25519 AAAA']);
 
         $res = FakeSsh::testConnection($creds, 'c-key');
-        $this->assertTrue($res['ok'], $res['message']);
-        $this->assertSame('ok', $res['reason']);
 
-        // The probe argv ends with user@host and the trivial `true` command,
-        // with `--` before the destination (option-injection guard).
+        $this->assertTrue($res['ok'], $res['message']);
         $argv = FakeSsh::$lastProbeArgv;
-        $this->assertIsArray($argv);
-        $this->assertSame('true', end($argv));
         $destIdx = array_search('sasa@h.example', $argv, true);
-        $this->assertNotFalse($destIdx);
-        $this->assertSame('--', $argv[$destIdx - 1], 'destination must be preceded by --');
-        // KEY auth: no sshpass prefix in front of ssh.
-        $this->assertSame('ssh', $argv[0]);
+        $this->assertSame('rsync', $argv[$destIdx + 1]);
+        $this->assertSame('--version', $argv[$destIdx + 2]);
+        $this->assertStringContainsString('(rsync)', $res['message']);
     }
 
     public function testClassifyPasswordNon255RemoteExitIsNotAuthFailure(): void
